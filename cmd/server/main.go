@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -32,27 +31,36 @@ func main() {
 
 	for {
 		input := gamelogic.GetInput()
-		if input[0] == "pause" {
+		switch input[0] {
+		case "pause":
 			fmt.Printf("Sending a pause message\n")
 			encodedState := routing.PlayingState{
 				IsPaused: true,
 			}
 
-			pubsub.PublishJson(connectionChannel, routing.ExchangePerilDirect, routing.PauseKey, &encodedState)
+			pubsub.PublishJson(
+				connectionChannel,
+				routing.ExchangePerilDirect,
+				routing.PauseKey,
+				&encodedState,
+			)
 
-		} else if input[0] == "resume" {
+		case "resume":
 			fmt.Printf("Sending a resume message\n")
-			encodedState, err := json.Marshal(&routing.PlayingState{
+			encodedState := routing.PlayingState{
 				IsPaused: false,
-			})
-			if err != nil {
-				panic(err)
 			}
-			pubsub.PublishJson(connectionChannel, routing.ExchangePerilDirect, routing.PauseKey, encodedState)
-		} else if input[0] == "quit" {
+
+			pubsub.PublishJson(
+				connectionChannel,
+				routing.ExchangePerilDirect,
+				routing.PauseKey,
+				&encodedState,
+			)
+		case "quit":
 			fmt.Println("Program shutting down")
 			os.Exit(0)
-		} else {
+		default:
 			fmt.Println("I don't understand what you mean")
 		}
 	}

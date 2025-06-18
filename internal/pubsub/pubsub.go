@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -42,7 +41,9 @@ func DeclareAndBind(conn *amqp.Connection, exchange, queueName, key string, simp
 	}
 
 	queue, err := channel.QueueDeclare(queueName, simpleQueueType == 0,
-		simpleQueueType == 1, simpleQueueType == 1, false, nil)
+		simpleQueueType == 1, simpleQueueType == 1, false, amqp.Table{
+			"x-dead-letter-exchange": "peril_dlx",
+		})
 	if err != nil {
 		return nil, amqp.Queue{}, err
 	}
@@ -94,15 +95,4 @@ func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string
 		}
 	}()
 	return nil
-}
-
-func kindString(kind string) string {
-	switch kind {
-	case routing.ExchangePerilDirect:
-		return "direct"
-	case routing.ExchangePerilTopic:
-		return "topic"
-	default:
-		return ""
-	}
 }

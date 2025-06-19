@@ -27,8 +27,21 @@ func main() {
 	}
 	defer connectionChannel.Close()
 
-	pubsub.DeclareAndBind(connection, routing.ExchangePerilTopic, "game_logs", "game_logs.*", 0)
-
+	//pubsub.DeclareAndBind(connection, routing.ExchangePerilTopic, "game_logs", "game_logs.*", 0)
+	pubsub.SubscribeGob(connection,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		0,
+		func(gamelog *routing.GameLog) pubsub.AckType {
+			defer fmt.Println(">")
+			err = gamelogic.WriteLog(*gamelog)
+			if err != nil {
+				fmt.Printf("problem writing logs")
+			}
+			return pubsub.Ack
+		},
+	)
 	for {
 		input := gamelogic.GetInput()
 		switch input[0] {

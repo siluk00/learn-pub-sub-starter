@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -55,10 +57,10 @@ func main() {
 		routing.ArmyMovesPrefix+"."+username,
 		routing.ArmyMovesPrefix+".*",
 		1,
-		func(move gamelogic.ArmyMove) pubsub.AckType {
+		func(move *gamelogic.ArmyMove) pubsub.AckType {
 			fmt.Println("*******")
 			defer fmt.Print("> ")
-			moveOutcome := gamestate.HandleMove(move)
+			moveOutcome := gamestate.HandleMove(*move)
 			if moveOutcome == gamelogic.MoveOutcomeMakeWar {
 				recognition := gamelogic.RecognitionOfWar{
 					Attacker: gamestate.Player,
@@ -68,7 +70,7 @@ func main() {
 					channel,
 					routing.ExchangePerilTopic,
 					routing.WarRecognitionsPrefix+"."+username,
-					recognition,
+					&recognition,
 				)
 				if err != nil {
 					log.Printf("Error publishing Move")
@@ -90,18 +92,40 @@ func main() {
 		"war",
 		routing.WarRecognitionsPrefix+".*",
 		0,
-		func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
-			outcome, _, _ := gamestate.HandleWar(rw)
+		func(rw *gamelogic.RecognitionOfWar) pubsub.AckType {
+			outcome, winner, loser := gamestate.HandleWar(*rw)
+			gamelog := routing.GameLog{
+				CurrentTime: time.Now(),
+				Username:    username,
+			}
 			switch outcome {
 			case gamelogic.WarOutcomeNotInvolved:
 				return pubsub.NackRequeue
 			case gamelogic.WarOutcomeNoUnits:
 				return pubsub.NackDiscard
 			case gamelogic.WarOutcomeOpponentWon:
-				return pubsub.Ack
+				fallthrough
 			case gamelogic.WarOutcomeYouWon:
+				gamelog.Message = winner + " won a war against " + loser
+				pubsub.PublishGob(channel,
+					routing.ExchangePerilTopic,
+					routing.GameLogSlug+"."+username,
+					&gamelog,
+				)
+				if err != nil {
+					return pubsub.NackRequeue
+				}
 				return pubsub.Ack
 			case gamelogic.WarOutcomeDraw:
+				gamelog.Message = "A war between " + winner + " and " + loser + " resulted in a draw"
+				err = pubsub.PublishGob(channel,
+					routing.ExchangePerilTopic,
+					routing.GameLogSlug+"."+username,
+					&gamelog,
+				)
+				if err != nil {
+					return pubsub.NackRequeue
+				}
 				return pubsub.Ack
 			default:
 				fmt.Print("error in war")
@@ -130,7 +154,7 @@ func main() {
 				channel,
 				routing.ExchangePerilTopic,
 				routing.ArmyMovesPrefix+"."+username,
-				move,
+				&move,
 			)
 			fmt.Println("Move was succesful!")
 		case "status":
@@ -138,7 +162,27 @@ func main() {
 		case "help":
 			gamelogic.PrintClientHelp()
 		case "spam":
-			fmt.Println("Spamming not allowed yet!")
+			if len(input) < 2 {
+				fmt.Println("Ensure one more argument")
+				break
+			}
+			inputInteger, err := strconv.Atoi(input[1])
+			if err != nil {
+				fmt.Println("The second argument should be a number")
+				break
+			}
+			for i := 0; i < inputInteger; i++ {
+				maliciousLog := gamelogic.GetMaliciousLog()
+				pubsub.PublishJson(channel,
+					routing.ExchangePerilTopic,
+					routing.GameLogSlug+"."+username,
+					&struct {
+						message string
+					}{
+						message: maliciousLog,
+					},
+				)
+			}
 		case "quit":
 			gamelogic.PrintQuit()
 			os.Exit(0)

@@ -1,7 +1,9 @@
 package pubsub
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -71,6 +73,70 @@ func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string
 		for message := range deliveryChan {
 			var theType T
 			err := json.Unmarshal(message.Body, &theType)
+			if err != nil {
+				fmt.Println(err.Error())
+				continue
+			}
+			ack := handler(theType)
+			switch ack {
+			case Ack:
+				err = message.Ack(false)
+				log.Println("Ack")
+			case NackRequeue:
+				err = message.Nack(false, true)
+				log.Println("Nack requeue")
+			case NackDiscard:
+				err = message.Nack(false, false)
+				log.Println("Nack Discard")
+			}
+
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+
+		}
+	}()
+	return nil
+}
+
+func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
+	var buf bytes.Buffer
+	encoding := gob.NewEncoder(&buf)
+	err := encoding.Encode(val)
+
+	if err != nil {
+		return err
+	}
+
+	if err := ch.PublishWithContext(context.Background(), exchange, key, false, false, amqp.Publishing{
+		ContentType: "appliction/gob",
+		Body:        buf.Bytes(),
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SubscribeGob[T any](conn *amqp.Connection, exchange, queueName, key string, simpleQueueType int, handler func(T) AckType) error {
+	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
+	if err != nil {
+		return err
+	}
+
+	channel.Qos(10, 0, true)
+	deliveryChan, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer channel.Close()
+		for message := range deliveryChan {
+			var theType T
+			reader := bytes.NewReader(message.Body)
+			decoder := gob.NewDecoder(reader)
+			err := decoder.Decode(&theType)
 			if err != nil {
 				fmt.Println(err.Error())
 				continue
